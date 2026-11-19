@@ -73,6 +73,11 @@ class ResourceOptimizationSolver:
     """
     Google OR-Tools Mixed-Integer Programming (MIP) Solver for
     Capacitated Multi-Depot Disaster Emergency Resource Allocation.
+    Features:
+    - Demand cap: Never allocates more resources than actual net demand.
+    - Capacity cap: Never exceeds available depot inventory.
+    - Anti-fragmentation penalty: Minimizes unnecessary splitting across depots.
+    - True net unmet demand calculation.
     """
     def __init__(self):
         self.resources = ["ambulances", "rescue_teams", "boats", "supplies"]
@@ -89,7 +94,8 @@ class ResourceOptimizationSolver:
         depots: List[Dict[str, Any]]
     ) -> Dict[str, Any]:
         """
-        Executes Google OR-Tools CBC solver to find the optimal allocation matrix.
+        Executes Google OR-Tools CBC/SCIP solver to find the optimal allocation matrix.
+        Considers already-dispatched allocations to avoid duplicate dispatches.
         """
         start_time = time.perf_counter()
 
@@ -113,89 +119,161 @@ class ResourceOptimizationSolver:
                 "solver_execution_time_ms": 0.0
             }
 
-        # Initialize OR-Tools MIP Solver
+        # 1. Compute Net Demands per incident (Gross Demand minus Already Dispatched)
+        gross_demands: Dict[int, Dict[str, int]] = {}
+        net_demands: Dict[int, Dict[str, int]] = {}
+        active_incidents = []
+
+        for inc in incidents:
+            inc_id = inc["id"]
+            gross = calculate_resource_demand(inc)
+            gross_demands[inc_id] = gross
+            
+            dispatched = inc.get("already_dispatched", {})
+            net = {}
+            total_net = 0
+            for r in self.resources:
+                already_disp = int(dispatched.get(r, 0))
+                remaining = max(0, gross[r] - already_disp)
+                net[r] = remaining
+                total_net += remaining
+            net_demands[inc_id] = net
+
+            # Only include incidents that actually have outstanding unsatisfied demand
+            if total_net > 0:
+                active_incidents.append(inc)
+
+        if not active_incidents:
+            return {
+                "status": "OPTIMAL",
+                "message": "All incident resource demands are already fully satisfied by previous dispatches.",
+                "allocations": [],
+                "unmet_demand": {},
+                "depot_stock_remaining": [
+                    {
+                        "depot_id": dep["id"],
+                        "depot_name": dep["name"],
+                        "remaining_ambulances": dep.get("available_ambulances", 0),
+                        "remaining_rescue_teams": dep.get("available_rescue_teams", 0),
+                        "remaining_boats": dep.get("available_boats", 0),
+                        "remaining_supplies": dep.get("available_supplies", 0)
+                    }
+                    for dep in depots
+                ],
+                "solver_execution_time_ms": round((time.perf_counter() - start_time) * 1000, 2)
+            }
+
+        # 2. Initialize OR-Tools MIP Solver
         solver = pywraplp.Solver.CreateSolver("CBC")
         if not solver:
-            # Fallback to GLOP/SCIP if CBC is not initialized
             solver = pywraplp.Solver.CreateSolver("SCIP")
         if not solver:
             solver = pywraplp.Solver.CreateSolver("GLOP")
 
-        # Calculate distances and demands
+        # 3. Calculate distances
         distances: Dict[Tuple[int, int], float] = {}
-        demands: Dict[int, Dict[str, int]] = {}
-
-        for inc in incidents:
+        for inc in active_incidents:
             inc_id = inc["id"]
-            demands[inc_id] = calculate_resource_demand(inc)
             for dep in depots:
                 dep_id = dep["id"]
                 dist = haversine_distance_km(
                     dep["latitude"], dep["longitude"],
                     inc["latitude"], inc["longitude"]
                 )
-                distances[(inc_id, dep_id)] = max(0.5, dist) # Minimum 0.5 km to prevent divide by zero
+                distances[(inc_id, dep_id)] = max(0.5, dist)
 
-        # Create Decision Variables: X[inc_id, dep_id, resource]
+        # 4. Create Decision Variables
+        # X[inc_id, dep_id, resource] : integer >= 0, upper bound = min(depot_stock, net_demand)
         X: Dict[Tuple[int, int, str], Any] = {}
-        for inc in incidents:
+        # Y[inc_id, dep_id] : binary indicator (1 if depot serves incident, 0 otherwise) to prevent fragmentation
+        Y: Dict[Tuple[int, int], Any] = {}
+        # U[inc_id, resource] : slack for unmet demand, bounded by net_demand
+        U: Dict[Tuple[int, str], Any] = {}
+
+        for inc in active_incidents:
             inc_id = inc["id"]
             for dep in depots:
                 dep_id = dep["id"]
+                Y[(inc_id, dep_id)] = solver.BoolVar(f"Y_{inc_id}_{dep_id}")
                 for r in self.resources:
-                    cap = dep.get(f"available_{r}", dep.get(r, 0))
-                    # Upper bound cannot exceed depot available stock
-                    X[(inc_id, dep_id, r)] = solver.IntVar(0, max(0, cap), f"X_{inc_id}_{dep_id}_{r}")
+                    cap = max(0, int(dep.get(f"available_{r}", dep.get(r, 0))))
+                    req = net_demands[inc_id][r]
+                    upper_bound = min(cap, req)
+                    X[(inc_id, dep_id, r)] = solver.IntVar(0, upper_bound, f"X_{inc_id}_{dep_id}_{r}")
 
-        # Slack Variables for Unmet Demand: U[inc_id, resource]
-        U: Dict[Tuple[int, str], Any] = {}
-        for inc in incidents:
-            inc_id = inc["id"]
             for r in self.resources:
-                req = demands[inc_id][r]
+                req = net_demands[inc_id][r]
                 U[(inc_id, r)] = solver.IntVar(0, req, f"U_{inc_id}_{r}")
 
-        # 1. Capacity Constraints: sum_inc(X) <= Depot Capacity
+        # 5. Constraints
+
+        # Constraint 1: Depot Capacity (combined allocations from a depot must not exceed available inventory)
         for dep in depots:
             dep_id = dep["id"]
             for r in self.resources:
-                cap = dep.get(f"available_{r}", dep.get(r, 0))
+                cap = max(0, int(dep.get(f"available_{r}", dep.get(r, 0))))
                 solver.Add(
-                    solver.Sum([X[(inc["id"], dep_id, r)] for inc in incidents]) <= cap
+                    solver.Sum([X[(inc["id"], dep_id, r)] for inc in active_incidents]) <= cap
                 )
 
-        # 2. Demand Balance Constraints: sum_dep(X) + U == Demand
-        for inc in incidents:
+        # Constraint 2: Demand Upper Bound & Balance
+        # Total resources allocated to each incident MUST NOT exceed its actual demand
+        # sum_dep(X) + U == net_demand
+        for inc in active_incidents:
             inc_id = inc["id"]
             for r in self.resources:
-                req = demands[inc_id][r]
+                req = net_demands[inc_id][r]
+                # Combined allocation cannot exceed demand
                 solver.Add(
-                    solver.Sum([X[(inc_id, dep["id"], r)] for dep in depots]) + U[(inc_id, r)] >= req
+                    solver.Sum([X[(inc_id, dep["id"], r)] for dep in depots]) <= req
+                )
+                # Exact balance with unmet demand
+                solver.Add(
+                    solver.Sum([X[(inc_id, dep["id"], r)] for dep in depots]) + U[(inc_id, r)] == req
                 )
 
-        # 3. Objective Function:
-        # Minimize (Transit Distance * Allocations) + Severe Penalty * Severity Weight * Unmet Demand
+        # Constraint 3: Link X and Y (anti-fragmentation constraint)
+        # sum_r X[i, j, r] <= M_i * Y[i, j]
+        for inc in active_incidents:
+            inc_id = inc["id"]
+            total_req_i = sum(net_demands[inc_id].values())
+            for dep in depots:
+                dep_id = dep["id"]
+                solver.Add(
+                    solver.Sum([X[(inc_id, dep_id, r)] for r in self.resources]) <= total_req_i * Y[(inc_id, dep_id)]
+                )
+
+        # 6. Objective Function
+        # Minimize:
+        #   (Transit Distance * Resource Cost * X)
+        #   + (Fixed Depot Setup Cost * Y) [prevents duplicate / fragmented depots for the same incident]
+        #   + (Unmet Demand Penalty * Severity Weight * U)
         objective = solver.Objective()
-        for inc in incidents:
+        FIXED_DEPOT_PENALTY = 25.0 # Penalty for opening another depot for an incident
+
+        for inc in active_incidents:
             inc_id = inc["id"]
             weight = self.severity_weights.get(inc.get("severity_level", "Medium"), 2.0)
-            
+
             for dep in depots:
                 dep_id = dep["id"]
                 dist = distances[(inc_id, dep_id)]
+                
+                # Fixed depot penalty to avoid unnecessary multiple depot splits
+                objective.SetCoefficient(Y[(inc_id, dep_id)], FIXED_DEPOT_PENALTY)
+
                 for r in self.resources:
-                    # Resource travel cost scale
                     res_cost = 1.0 if r == "supplies" else 2.5
                     objective.SetCoefficient(X[(inc_id, dep_id, r)], dist * res_cost)
 
             for r in self.resources:
                 # Heavy penalty for unmet demand, scaled by severity
-                unmet_penalty = 1500.0 * weight
+                unmet_penalty = 2000.0 * weight
                 objective.SetCoefficient(U[(inc_id, r)], unmet_penalty)
 
         objective.SetMinimization()
 
-        # Solve
+        # 7. Solve
         solver_status = solver.Solve()
         exec_time_ms = round((time.perf_counter() - start_time) * 1000, 2)
 
@@ -203,18 +281,27 @@ class ResourceOptimizationSolver:
 
         allocations = []
         unmet_demand_report = {}
-        depot_stock_tracker = {dep["id"]: {r: dep.get(f"available_{r}", dep.get(r, 0)) for r in self.resources} for dep in depots}
+        depot_stock_tracker = {
+            dep["id"]: {
+                r: max(0, int(dep.get(f"available_{r}", dep.get(r, 0))))
+                for r in self.resources
+            }
+            for dep in depots
+        }
 
         if is_optimal:
-            for inc in incidents:
+            for inc in active_incidents:
                 inc_id = inc["id"]
-                unmet_demand_report[inc["title"]] = {}
-                
+                unmet_for_inc = {}
+
                 # Check unmet demand
                 for r in self.resources:
                     unmet_val = int(round(U[(inc_id, r)].solution_value()))
                     if unmet_val > 0:
-                        unmet_demand_report[inc["title"]][r] = unmet_val
+                        unmet_for_inc[r] = unmet_val
+
+                if unmet_for_inc:
+                    unmet_demand_report[inc["title"]] = unmet_for_inc
 
                 # Collect non-zero dispatch allocations
                 for dep in depots:
@@ -240,23 +327,23 @@ class ResourceOptimizationSolver:
                             "approved_by_human": False
                         })
                         
-                        # Deduct from depot tracker
+                        # Deduct from tracker for remaining stock calculation
                         depot_stock_tracker[dep_id]["ambulances"] -= alloc_amb
                         depot_stock_tracker[dep_id]["rescue_teams"] -= alloc_teams
                         depot_stock_tracker[dep_id]["boats"] -= alloc_boats
                         depot_stock_tracker[dep_id]["supplies"] -= alloc_sup
 
-        # Format remaining depot stock
+        # Format remaining depot stock preview
         depot_remaining = []
         for dep in depots:
             dep_id = dep["id"]
             depot_remaining.append({
                 "depot_id": dep_id,
                 "depot_name": dep["name"],
-                "remaining_ambulances": depot_stock_tracker[dep_id]["ambulances"],
-                "remaining_rescue_teams": depot_stock_tracker[dep_id]["rescue_teams"],
-                "remaining_boats": depot_stock_tracker[dep_id]["boats"],
-                "remaining_supplies": depot_stock_tracker[dep_id]["supplies"]
+                "remaining_ambulances": max(0, depot_stock_tracker[dep_id]["ambulances"]),
+                "remaining_rescue_teams": max(0, depot_stock_tracker[dep_id]["rescue_teams"]),
+                "remaining_boats": max(0, depot_stock_tracker[dep_id]["boats"]),
+                "remaining_supplies": max(0, depot_stock_tracker[dep_id]["supplies"])
             })
 
         return {
