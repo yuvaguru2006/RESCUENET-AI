@@ -1,0 +1,73 @@
+import pytest
+from app.core.database import get_connection, init_db
+from app.schemas.pydantic_schemas import IncidentCreate, ApprovalRequest
+from app.api.v1.module1_intelligence import register_incident, list_incidents
+from app.api.v1.module2_decision import run_optimization, list_allocations, approve_dispatch
+from app.api.v1.module3_monitoring import get_dashboard_summary, get_map_telemetry, get_analytics_data
+from seed_data import seed_database
+
+@pytest.fixture(scope="module")
+def setup_db():
+    init_db()
+    seed_database()
+    conn = get_connection()
+    yield conn
+    conn.close()
+
+def test_register_incident_endpoint(setup_db):
+    """Tests registering a new incident via endpoint function and verifying ML classification."""
+    payload = IncidentCreate(
+        title="Royapuram Harbor Tidal Surge",
+        disaster_type="Cyclone",
+        latitude=13.1150,
+        longitude=80.2950,
+        location_name="Royapuram Harbor, Chennai",
+        casualties=16,
+        affected_population=5200,
+        damage_level=4,
+        weather_condition="Storm Winds"
+    )
+    result = register_incident(payload, setup_db)
+    assert result["id"] > 0
+    assert result["title"] == "Royapuram Harbor Tidal Surge"
+    assert result["severity_level"] in ["High", "Critical"]
+    assert result["risk_score"] > 60.0
+
+def test_list_incidents_endpoint(setup_db):
+    """Tests listing incidents from database."""
+    incidents = list_incidents(severity=None, status=None, conn=setup_db)
+    assert len(incidents) >= 5
+
+def test_run_optimization_and_approval_workflow(setup_db):
+    """Tests full Module 2 workflow: running OR-Tools solver then human approval."""
+    opt_result = run_optimization(setup_db)
+    assert opt_result["status"] in ["OPTIMAL", "FEASIBLE"]
+    assert len(opt_result["allocations"]) > 0
+    
+    # Check allocations listed
+    allocations = list_allocations(setup_db)
+    assert len(allocations) > 0
+    
+    # Test human approval on the first allocation
+    target_alloc_id = allocations[0]["id"]
+    approval_payload = ApprovalRequest(
+        allocation_ids=[target_alloc_id],
+        approved=True,
+        commander_notes="Approved by Chief Operations Officer"
+    )
+    approval_res = approve_dispatch(approval_payload, setup_db)
+    assert approval_res["success"] is True
+    assert approval_res["approved_count"] == 1
+
+def test_monitoring_telemetry_and_analytics(setup_db):
+    """Tests Module 3 summary, map telemetry, and analytics queries."""
+    summary = get_dashboard_summary(setup_db)
+    assert summary["active_incidents"] > 0
+    
+    map_data = get_map_telemetry(setup_db)
+    assert len(map_data["incidents"]) > 0
+    assert len(map_data["depots"]) == 5
+    
+    analytics = get_analytics_data(setup_db)
+    assert "severity_distribution" in analytics
+    assert "hazard_type_breakdown" in analytics

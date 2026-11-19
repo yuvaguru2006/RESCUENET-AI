@@ -1,0 +1,78 @@
+import React, { useState, useEffect } from 'react';
+import { ShieldAlert, Activity, RefreshCw, Radio, Database } from 'lucide-react';
+
+export const Navbar = ({ backendHealthy, onRefresh, refreshing }) => {
+  const [time, setTime] = useState(new Date().toLocaleTimeString());
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setTime(new Date().toLocaleTimeString());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  return (
+    <header className="bg-slate-950 border-b border-slate-800 text-slate-100 px-4 py-3 sticky top-0 z-50">
+      <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-3">
+        {/* Brand */}
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-lg bg-red-600/20 border border-red-500/40 flex items-center justify-center text-red-500 shadow-inner">
+            <ShieldAlert className="w-6 h-6 animate-pulse" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="font-extrabold text-xl tracking-wider text-slate-100">
+                RESCUE<span className="text-red-500">NET</span>
+              </span>
+              <span className="bg-blue-600/20 text-blue-400 text-xs px-2 py-0.5 rounded font-mono border border-blue-500/30">
+                AI COMMAND
+              </span>
+            </div>
+            <p className="text-xs text-slate-400 tracking-wide font-mono hidden sm:block">
+              DISASTER INTELLIGENCE & RESOURCE OPTIMIZATION PLATFORM
+            </p>
+          </div>
+        </div>
+
+        {/* Center Pill: Academic Disclaimer */}
+        <div className="hidden lg:flex items-center gap-2 bg-slate-900/90 border border-slate-800 px-3 py-1.5 rounded-full text-xs font-mono text-slate-400">
+          <Radio className="w-3.5 h-3.5 text-amber-400 animate-pulse" />
+          <span>CSA10 CAPSTONE &bull; ACADEMIC PROTOTYPE &bull; SIMULATED CHENNAI DATA</span>
+        </div>
+
+        {/* Right Status Indicators */}
+        <div className="flex items-center gap-4 text-xs font-mono">
+          {/* Connection Status */}
+          <div className="flex items-center gap-2 bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-md">
+            <span
+              className={`w-2.5 h-2.5 rounded-full ${
+                backendHealthy ? 'bg-emerald-500 shadow-emerald-500/50 shadow-sm animate-pulse' : 'bg-red-500'
+              }`}
+            />
+            <span className={backendHealthy ? 'text-emerald-400' : 'text-red-400'}>
+              {backendHealthy ? 'BACKEND ONLINE' : 'DISCONNECTED'}
+            </span>
+          </div>
+
+          {/* Clock */}
+          <div className="hidden sm:flex items-center gap-1.5 text-slate-400 bg-slate-900/60 px-3 py-1.5 rounded-md border border-slate-800">
+            <span>{time}</span>
+          </div>
+
+          {/* Refresh Button */}
+          <button
+            onClick={onRefresh}
+            disabled={refreshing}
+            title="Refresh All Telemetry"
+            className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-200 px-3 py-1.5 rounded-md border border-slate-700 transition"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin text-blue-400' : ''}`} />
+            <span className="hidden md:inline">SYNC</span>
+          </button>
+        </div>
+      </div>
+    </header>
+  );
+};
+
+export default Navbar;
