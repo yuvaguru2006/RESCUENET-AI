@@ -16,9 +16,6 @@ import {
   Activity,
   Flame,
   LifeBuoy,
-  Package,
-  Layers,
-  CheckCircle,
 } from 'lucide-react';
 
 export function App() {
@@ -35,14 +32,16 @@ export function App() {
   const [mapTelemetry, setMapTelemetry] = useState(null);
   const [analyticsData, setAnalyticsData] = useState(null);
 
-  const fetchAllData = useCallback(async () => {
-    setRefreshing(true);
+  const fetchAllData = useCallback(async (isManual = false) => {
+    if (isManual) {
+      setRefreshing(true);
+    }
     try {
       // 1. Health check
       try {
         await disasterApi.checkHealth();
         setBackendHealthy(true);
-      } catch (e) {
+      } catch {
         setBackendHealthy(false);
       }
 
@@ -75,20 +74,38 @@ export function App() {
     } catch (err) {
       console.error('Data sync error', err);
     } finally {
-      setRefreshing(false);
+      if (isManual) {
+        setRefreshing(false);
+      }
     }
   }, []);
 
   useEffect(() => {
-    fetchAllData();
-    const interval = setInterval(fetchAllData, 15000); // Polling every 15s for live updates
-    return () => clearInterval(interval);
+    let isMounted = true;
+
+    // Asynchronously trigger initial sync to avoid synchronous setState during mount
+    Promise.resolve().then(() => {
+      if (isMounted) {
+        fetchAllData(false);
+      }
+    });
+
+    const interval = setInterval(() => {
+      if (isMounted) {
+        fetchAllData(false);
+      }
+    }, 15000); // Polling every 15s for live updates
+
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
   }, [fetchAllData]);
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
       {/* Universal Command Navbar */}
-      <Navbar backendHealthy={backendHealthy} onRefresh={fetchAllData} refreshing={refreshing} />
+      <Navbar backendHealthy={backendHealthy} onRefresh={() => fetchAllData(true)} refreshing={refreshing} />
 
       {/* Main Command-Center Workspace */}
       <div className="flex-1 flex flex-col lg:flex-row">

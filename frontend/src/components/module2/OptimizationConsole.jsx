@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { disasterApi } from '../../api/client';
 import { SeverityBadge } from '../common/SeverityBadge';
-import { Truck, CheckCircle2, AlertOctagon, Play, ShieldAlert, FileText, CheckSquare, XCircle } from 'lucide-react';
+import { Truck, CheckCircle2, AlertOctagon, Play, ShieldAlert, FileText, XCircle } from 'lucide-react';
 
 export const OptimizationConsole = ({ depots, allocations, onOptimizationRun, onDispatchApproved }) => {
   const [running, setRunning] = useState(false);
@@ -10,7 +10,6 @@ export const OptimizationConsole = ({ depots, allocations, onOptimizationRun, on
   const [commanderNotes, setCommanderNotes] = useState('Approved by State Incident Commander for immediate deployment.');
   const [approving, setApproving] = useState(false);
   const [selectedIncidentRecommendation, setSelectedIncidentRecommendation] = useState(null);
-  const [recLoading, setRecLoading] = useState(false);
 
   const handleRunOptimizer = async () => {
     try {
@@ -59,18 +58,14 @@ export const OptimizationConsole = ({ depots, allocations, onOptimizationRun, on
 
   const handleViewRecommendation = async (incidentId) => {
     try {
-      setRecLoading(true);
       const res = await disasterApi.getRecommendations(incidentId);
       setSelectedIncidentRecommendation(res.data);
     } catch (err) {
       console.error('Failed to load recommendation', err);
-    } finally {
-      setRecLoading(false);
     }
   };
 
   const proposedCount = allocations.filter((a) => a.status === 'Proposed').length;
-  const dispatchedCount = allocations.filter((a) => a.status === 'Dispatched').length;
 
   return (
     <div className="space-y-6">

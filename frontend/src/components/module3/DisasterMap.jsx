@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import L from 'leaflet';
 
-export const DisasterMap = ({ mapTelemetry, onSelectIncident }) => {
+export const DisasterMap = ({ mapTelemetry }) => {
   const mapContainerRef = useRef(null);
   const mapInstanceRef = useRef(null);
   const layerGroupRef = useRef(null);

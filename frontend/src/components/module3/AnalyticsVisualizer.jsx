@@ -1,6 +1,6 @@
 import React from 'react';
 import Plot from 'react-plotly.js';
-import { BarChart3, PieChart, ShieldAlert, FileText, Download } from 'lucide-react';
+import { BarChart3, FileText, Download } from 'lucide-react';
 
 export const AnalyticsVisualizer = ({ analyticsData, summary }) => {
   if (!analyticsData) {
@@ -11,7 +11,7 @@ export const AnalyticsVisualizer = ({ analyticsData, summary }) => {
     );
   }
 
-  const { severity_distribution = {}, hazard_type_breakdown = [], depot_utilization = [], risk_matrix = [] } = analyticsData;
+  const { severity_distribution = {}, hazard_type_breakdown = [], depot_utilization = [] } = analyticsData;
 
   // Chart 1: Severity Donut
   const severityLabels = Object.keys(severity_distribution);

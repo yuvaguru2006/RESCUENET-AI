@@ -1,15 +1,16 @@
-import React, { useState, useEffect } from 'react';
-import { ShieldAlert, Activity, RefreshCw, Radio, Database } from 'lucide-react';
+import React, { useSyncExternalStore } from 'react';
+import { ShieldAlert, RefreshCw, Radio } from 'lucide-react';
+
+const subscribeTime = (callback) => {
+  const timer = setInterval(callback, 1000);
+  return () => clearInterval(timer);
+};
+
+const getTimeSnapshot = () => new Date().toLocaleTimeString();
+const getTimeServerSnapshot = () => '--:--:--';
 
 export const Navbar = ({ backendHealthy, onRefresh, refreshing }) => {
-  const [time, setTime] = useState(new Date().toLocaleTimeString());
-
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setTime(new Date().toLocaleTimeString());
-    }, 1000);
-    return () => clearInterval(timer);
-  }, []);
+  const time = useSyncExternalStore(subscribeTime, getTimeSnapshot, getTimeServerSnapshot);
 
   return (
     <header className="bg-slate-950 border-b border-slate-800 text-slate-100 px-4 py-3 sticky top-0 z-50">
@@ -56,7 +57,7 @@ export const Navbar = ({ backendHealthy, onRefresh, refreshing }) => {
 
           {/* Clock */}
           <div className="hidden sm:flex items-center gap-1.5 text-slate-400 bg-slate-900/60 px-3 py-1.5 rounded-md border border-slate-800">
-            <span>{time}</span>
+            <span>{time || '--:--:--'}</span>
           </div>
 
           {/* Refresh Button */}

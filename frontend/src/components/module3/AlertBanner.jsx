@@ -1,5 +1,5 @@
 import React from 'react';
-import { AlertOctagon, X, BellRing } from 'lucide-react';
+import { AlertOctagon, X } from 'lucide-react';
 import { disasterApi } from '../../api/client';
 
 export const AlertBanner = ({ alerts, onAlertDismissed }) => {

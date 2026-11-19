@@ -1,5 +1,5 @@
 import React from 'react';
-import { Map, BrainCircuit, Truck, BarChart3, AlertOctagon, CheckCircle2 } from 'lucide-react';
+import { Map, BrainCircuit, Truck, BarChart3, CheckCircle2 } from 'lucide-react';
 
 export const Sidebar = ({ activeTab, setActiveTab, activeAlertsCount, activeIncidentsCount }) => {
   const navItems = [
