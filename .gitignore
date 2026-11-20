@@ -27,3 +27,11 @@ dist-ssr/
 Thumbs.db
 .vscode/
 .idea/
+
+# User uploaded incident evidence
+backend/data/uploads/
+
+# Local environment variables
+.env
+.env.*
+!.env.example
