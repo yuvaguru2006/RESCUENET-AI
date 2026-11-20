@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-from app.core.config import PROJECT_NAME, VERSION, DESCRIPTION
+from app.core.config import PROJECT_NAME, VERSION, DESCRIPTION, UPLOADS_DIR
 from app.core.database import init_db
 from app.api.v1.router import api_router
 from seed_data import seed_database
@@ -47,6 +47,9 @@ def health_check():
 
 # Mount modular REST APIs
 app.include_router(api_router, prefix="/api")
+
+# Mount disaster incident evidence photos directory
+app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
 
 # Mount built frontend static files if available
 FRONTEND_DIST = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"

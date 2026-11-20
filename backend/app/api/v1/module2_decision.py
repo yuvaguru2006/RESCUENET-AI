@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 import sqlite3
 from typing import List, Dict, Any, Optional
 from app.core.database import get_db, get_db_context
+from app.core.security import get_optional_user, require_admin
 from app.schemas.pydantic_schemas import (
     ResourceDepot,
     AllocationItem,
@@ -23,21 +24,22 @@ def list_resource_depots(conn: sqlite3.Connection = Depends(get_db)):
     return [dict(r) for r in rows]
 
 @router.post("/solve", response_model=OptimizationResult)
-def run_optimization(conn: sqlite3.Connection = Depends(get_db)):
+def run_optimization(
+    conn: sqlite3.Connection = Depends(get_db),
+    current_user: Optional[Dict[str, Any]] = Depends(get_optional_user)
+):
     """
     Executes Google OR-Tools Mixed-Integer Programming solver across all active
-    incidents and available depot resources.
-    
-    Guarantees:
-    1. Total allocations per incident never exceed actual demand.
-    2. Takes into account already DISPATCHED resources to avoid duplicate dispatches.
-    3. Depot capacity limits are strictly enforced.
-    4. Only PROPOSED allocations are generated; dispatch occurs only after human approval.
+    and verified citizen incidents and available depot resources.
+    Requires administrator authorization when called via authenticated HTTP API.
     """
+    if isinstance(current_user, dict) and current_user.get("role") != "ADMIN":
+        raise HTTPException(status_code=403, detail="Administrator privileges required to execute resource optimization.")
+
     cursor = conn.cursor()
     
-    # 1. Fetch active incidents
-    cursor.execute("SELECT * FROM incidents WHERE status = 'Active' ORDER BY id ASC;")
+    # 1. Fetch active and verified incidents (including citizen verified reports)
+    cursor.execute("SELECT * FROM incidents WHERE status IN ('Active', 'Verified') ORDER BY id ASC;")
     incidents = [dict(r) for r in cursor.fetchall()]
     
     # 2. Fetch already DISPATCHED allocations per incident
@@ -146,14 +148,22 @@ def list_allocations(
     return [dict(r) for r in rows]
 
 @router.post("/approve-dispatch")
-def approve_dispatch(payload: ApprovalRequest, conn: sqlite3.Connection = Depends(get_db)):
+def approve_dispatch(
+    payload: ApprovalRequest,
+    conn: sqlite3.Connection = Depends(get_db),
+    current_user: Optional[Dict[str, Any]] = Depends(get_optional_user)
+):
     """
     Human-in-the-Loop Approval:
     Formally approves proposed AI recommendations and dispatches emergency units.
     Decrements available inventories at the corresponding resource depots in the database.
     Prevents double dispatching or double inventory deductions.
     Requires explicit non-empty commander notes and at least one selected allocation.
+    Updates incident status to 'Dispatched' so citizens can track real-time response.
     """
+    if isinstance(current_user, dict) and current_user.get("role") != "ADMIN":
+        raise HTTPException(status_code=403, detail="Administrator privileges required to authorize emergency dispatches.")
+
     if not payload.commander_notes or not payload.commander_notes.strip():
         raise HTTPException(
             status_code=400,
@@ -214,6 +224,13 @@ def approve_dispatch(payload: ApprovalRequest, conn: sqlite3.Connection = Depend
             approved_by_human = 1
         WHERE id = ?;
         """, (alloc_id,))
+
+        # Update incident status to 'Dispatched'
+        cursor.execute("""
+        UPDATE incidents SET
+            status = 'Dispatched'
+        WHERE id = ? AND status IN ('Reported', 'Verified', 'Active');
+        """, (alloc_dict["incident_id"],))
         
         approved_count += 1
         

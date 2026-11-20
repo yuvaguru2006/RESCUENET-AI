@@ -2,6 +2,59 @@ from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 
+# --- Authentication & User Schemas (Core RBAC) ---
+
+class UserRegister(BaseModel):
+    username: str = Field(..., min_length=3, max_length=50, examples=["citizen_chennai"])
+    email: str = Field(..., min_length=5, examples=["citizen@rescuenet.gov"])
+    password: str = Field(..., min_length=6, examples=["Password123!"])
+    full_name: str = Field(..., min_length=2, max_length=100, examples=["Kavitha Ramanathan"])
+    phone: Optional[str] = Field(None, examples=["+91 98401 23456"])
+
+class UserLogin(BaseModel):
+    username: str = Field(..., examples=["citizen"])
+    password: str = Field(..., examples=["Citizen@123"])
+
+class UserResponse(BaseModel):
+    id: int
+    username: str
+    email: str
+    full_name: str
+    phone: Optional[str] = None
+    role: str
+    created_at: Optional[str] = None
+
+class TokenResponse(BaseModel):
+    token: str
+    token_type: str = "Bearer"
+    user: UserResponse
+
+# --- Citizen Reporting & SOS Schemas (Module 1 & 3) ---
+
+class CitizenReportCreate(BaseModel):
+    title: Optional[str] = None
+    disaster_type: str = Field(..., examples=["Flood"], description="Flood, Cyclone, Earthquake, Wildfire, Landslide, Building Collapse")
+    location_name: str = Field(..., examples=["Velachery Main Road, Chennai"])
+    latitude: float = Field(..., examples=[12.9750])
+    longitude: float = Field(..., examples=[80.2207])
+    description: str = Field(..., min_length=5, examples=["Water level reached 4 feet. Multiple residents trapped."])
+    image_base64: Optional[str] = None
+    casualties: int = Field(0, ge=0)
+    affected_population: int = Field(0, ge=0)
+    damage_level: int = Field(1, ge=1, le=5)
+    weather_condition: Optional[str] = "Normal"
+
+class SOSRequest(BaseModel):
+    latitude: float = Field(..., examples=[13.0827])
+    longitude: float = Field(..., examples=[80.2707])
+    location_name: Optional[str] = "Current GPS Coordinates"
+    phone: Optional[str] = None
+    note: Optional[str] = "Immediate evacuation and medical rescue required!"
+
+class IncidentStatusUpdate(BaseModel):
+    status: str = Field(..., examples=["Verified"], description="Reported, Verified, Active, Dispatched, Resolved")
+    commander_notes: Optional[str] = None
+
 # --- Incident Schemas (Module 1) ---
 
 class IncidentCreate(BaseModel):
@@ -46,6 +99,11 @@ class IncidentResponse(BaseModel):
     risk_score: float
     prediction_explanation: Optional[str]
     status: str
+    reporter_id: Optional[int] = None
+    description: Optional[str] = None
+    image_url: Optional[str] = None
+    is_sos: Optional[int] = 0
+    source: Optional[str] = "OFFICIAL"
     created_at: str
 
 # --- Resource & Allocation Schemas (Module 2) ---

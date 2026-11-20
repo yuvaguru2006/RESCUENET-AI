@@ -7,7 +7,30 @@ backend_dir = Path(__file__).resolve().parent
 sys.path.insert(0, str(backend_dir))
 
 from app.core.database import init_db, get_db_context
+from app.core.security import hash_password
 from app.ml.predictor import predictor
+
+def _seed_users(cursor):
+    """Seeds default Administrator and Citizen demo accounts if not already present."""
+    # 1. Admin Account
+    cursor.execute("SELECT id FROM users WHERE username = 'admin';")
+    if not cursor.fetchone():
+        admin_hash, admin_salt = hash_password("Admin@123")
+        cursor.execute("""
+        INSERT INTO users (username, email, password_hash, salt, full_name, phone, role)
+        VALUES ('admin', 'admin@rescuenet.gov', ?, ?, 'State Incident Commander', '+91 94440 10001', 'ADMIN');
+        """, (admin_hash, admin_salt))
+        print("Created default Administrator account: username 'admin'")
+
+    # 2. Citizen Account
+    cursor.execute("SELECT id FROM users WHERE username = 'citizen';")
+    if not cursor.fetchone():
+        citizen_hash, citizen_salt = hash_password("Citizen@123")
+        cursor.execute("""
+        INSERT INTO users (username, email, password_hash, salt, full_name, phone, role)
+        VALUES ('citizen', 'citizen@chennai.gov', ?, ?, 'Kavitha Ramanathan', '+91 98401 23456', 'CITIZEN');
+        """, (citizen_hash, citizen_salt))
+        print("Created default Citizen account: username 'citizen'")
 
 def seed_database(force_reset: bool = False):
     """Initializes tables and seeds initial Chennai disaster depots and simulated incidents."""
@@ -18,12 +41,14 @@ def seed_database(force_reset: bool = False):
         
         if force_reset:
             print("Force resetting database tables and state...")
+            cursor.execute("DELETE FROM user_tokens;")
+            cursor.execute("DELETE FROM users;")
             cursor.execute("DELETE FROM emergency_alerts;")
             cursor.execute("DELETE FROM allocations;")
             cursor.execute("DELETE FROM incidents;")
             cursor.execute("DELETE FROM resource_depots;")
             try:
-                cursor.execute("DELETE FROM sqlite_sequence WHERE name IN ('emergency_alerts', 'allocations', 'incidents', 'resource_depots');")
+                cursor.execute("DELETE FROM sqlite_sequence WHERE name IN ('user_tokens', 'users', 'emergency_alerts', 'allocations', 'incidents', 'resource_depots');")
             except Exception:
                 pass
             conn.commit()
@@ -31,8 +56,12 @@ def seed_database(force_reset: bool = False):
             # Check if already seeded
             cursor.execute("SELECT COUNT(*) FROM resource_depots;")
             if cursor.fetchone()[0] > 0:
-                print("Database already contains resource depots. Skipping re-seed.")
+                print("Database already contains resource depots. Ensuring core accounts exist...")
+                _seed_users(cursor)
+                conn.commit()
                 return
+
+        _seed_users(cursor)
 
         print("Seeding Chennai Emergency Resource Depots...")
         depots = [

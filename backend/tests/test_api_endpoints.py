@@ -4,8 +4,24 @@ os.environ["TESTING"] = "1"
 import pytest
 from fastapi import HTTPException
 from app.core.database import get_connection, init_db
-from app.schemas.pydantic_schemas import IncidentCreate, ApprovalRequest
-from app.api.v1.module1_intelligence import register_incident, list_incidents
+from app.schemas.pydantic_schemas import (
+    IncidentCreate,
+    ApprovalRequest,
+    UserRegister,
+    UserLogin,
+    CitizenReportCreate,
+    SOSRequest,
+    IncidentStatusUpdate
+)
+from app.api.v1.auth import register_citizen, login
+from app.api.v1.module1_intelligence import (
+    register_incident,
+    list_incidents,
+    report_citizen_incident,
+    trigger_sos_emergency,
+    get_my_reports,
+    update_incident_status
+)
 from app.api.v1.module2_decision import run_optimization, list_allocations, approve_dispatch
 from app.api.v1.module3_monitoring import get_dashboard_summary, get_map_telemetry, get_analytics_data
 from seed_data import seed_database
@@ -209,3 +225,131 @@ def test_resource_inventory_and_deployment_totals_consistency(setup_db):
     assert summary["total_rescue_teams_deployed"] + summary["total_rescue_teams_available"] == totals["total_teams"]
     assert summary["total_boats_deployed"] + summary["total_boats_available"] == totals["total_boats"]
     assert summary["total_supplies_deployed"] + summary["total_supplies_available"] == totals["total_sup"]
+
+def test_citizen_registration_and_login_rbac(setup_db):
+    """Verifies citizen registration unconditionally sets role CITIZEN and login returns valid token."""
+    reg_payload = UserRegister(
+        username="muthu_kumar",
+        email="muthu@chennai.gov",
+        password="Password123!",
+        full_name="Muthu Kumar",
+        phone="+91 98840 99999"
+    )
+    reg_res = register_citizen(reg_payload, setup_db)
+    assert reg_res["token"]
+    assert reg_res["user"]["role"] == "CITIZEN"
+    assert reg_res["user"]["username"] == "muthu_kumar"
+
+    # Verify duplicate username rejected
+    with pytest.raises(HTTPException) as exc:
+        register_citizen(reg_payload, setup_db)
+    assert exc.value.status_code == 400
+
+    # Test login
+    login_payload = UserLogin(username="muthu_kumar", password="Password123!")
+    login_res = login(login_payload, setup_db)
+    assert login_res["token"]
+    assert login_res["user"]["role"] == "CITIZEN"
+
+    # Test seeded admin login
+    admin_login = UserLogin(username="admin", password="Admin@123")
+    admin_res = login(admin_login, setup_db)
+    assert admin_res["token"]
+    assert admin_res["user"]["role"] == "ADMIN"
+
+def test_citizen_report_with_rf_prediction_and_my_reports(setup_db):
+    """Verifies that citizen reports trigger RF severity prediction and show up in my-reports."""
+    mock_citizen = {
+        "user_id": 2,
+        "username": "citizen",
+        "full_name": "Kavitha Ramanathan",
+        "role": "CITIZEN"
+    }
+
+    report_payload = CitizenReportCreate(
+        disaster_type="Flood",
+        location_name="T. Nagar South Usman Road",
+        latitude=13.0400,
+        longitude=80.2300,
+        description="Water stagnation over 3 feet near commercial complex, ground floor submerged.",
+        casualties=2,
+        affected_population=1200,
+        damage_level=3
+    )
+
+    incident = report_citizen_incident(report_payload, mock_citizen, setup_db)
+    assert incident["id"] > 0
+    assert incident["source"] == "CITIZEN"
+    assert incident["status"] == "Reported"
+    assert incident["severity_level"] in ["Medium", "High", "Critical"]
+    assert incident["risk_score"] > 0.0
+
+    # Check my-reports
+    my_reports = get_my_reports(mock_citizen, setup_db)
+    assert len(my_reports) > 0
+    assert any(r["id"] == incident["id"] for r in my_reports)
+
+def test_citizen_sos_emergency_distress(setup_db):
+    """Verifies that citizen SOS creates an instant Critical emergency incident."""
+    mock_citizen = {
+        "user_id": 2,
+        "username": "citizen",
+        "full_name": "Kavitha Ramanathan",
+        "role": "CITIZEN"
+    }
+    sos_payload = SOSRequest(
+        latitude=13.0100,
+        longitude=80.2500,
+        location_name="Adyar Bridge Flood Triage",
+        phone="+91 98401 23456",
+        note="Family trapped on second floor due to rapid river swelling"
+    )
+    sos_res = trigger_sos_emergency(sos_payload, mock_citizen, setup_db)
+    assert sos_res["is_sos"] == 1
+    assert sos_res["severity_level"] == "Critical"
+    assert sos_res["risk_score"] >= 95.0
+    assert sos_res["status"] == "Reported"
+
+def test_admin_update_incident_status(setup_db):
+    """Verifies that admin can update incident status to Verified or Resolved."""
+    mock_admin = {
+        "user_id": 1,
+        "username": "admin",
+        "full_name": "State Incident Commander",
+        "role": "ADMIN"
+    }
+    # Update incident 1 status to Verified
+    update_res = update_incident_status(
+        1,
+        IncidentStatusUpdate(status="Verified", commander_notes="Ground team confirmed visual sighting"),
+        setup_db,
+        mock_admin
+    )
+    assert update_res["success"] is True
+    assert update_res["status"] == "Verified"
+
+def test_citizen_forbidden_from_admin_solve(setup_db):
+    """Verifies that citizen role cannot execute optimization solver."""
+    mock_citizen = {
+        "user_id": 2,
+        "username": "citizen",
+        "role": "CITIZEN"
+    }
+    with pytest.raises(HTTPException) as exc:
+        run_optimization(setup_db, mock_citizen)
+    assert exc.value.status_code == 403
+
+def test_citizen_forbidden_from_admin_dispatch_approval(setup_db):
+    """Verifies that citizen role cannot approve dispatch."""
+    mock_citizen = {
+        "user_id": 2,
+        "username": "citizen",
+        "role": "CITIZEN"
+    }
+    with pytest.raises(HTTPException) as exc:
+        approve_dispatch(
+            ApprovalRequest(allocation_ids=[1], approved=True, commander_notes="Attempted by citizen"),
+            setup_db,
+            mock_citizen
+        )
+    assert exc.value.status_code == 403

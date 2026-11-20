@@ -36,6 +36,32 @@ def init_db():
     with get_db_context() as conn:
         cursor = conn.cursor()
         
+        # 0. Users and Session Tokens (Role-Based Access Control)
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL UNIQUE,
+            email TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL,
+            salt TEXT NOT NULL,
+            full_name TEXT NOT NULL,
+            phone TEXT,
+            role TEXT NOT NULL CHECK(role IN ('CITIZEN', 'ADMIN')),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        """)
+
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS user_tokens (
+            token TEXT PRIMARY KEY,
+            user_id INTEGER NOT NULL,
+            role TEXT NOT NULL,
+            expires_at TIMESTAMP NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+        );
+        """)
+
         # 1. Incidents Table (Module 1)
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS incidents (
@@ -53,9 +79,29 @@ def init_db():
             risk_score REAL NOT NULL,
             prediction_explanation TEXT,
             status TEXT NOT NULL DEFAULT 'Active',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            reporter_id INTEGER,
+            description TEXT,
+            image_url TEXT,
+            is_sos INTEGER NOT NULL DEFAULT 0,
+            source TEXT NOT NULL DEFAULT 'OFFICIAL',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (reporter_id) REFERENCES users (id) ON DELETE SET NULL
         );
         """)
+
+        # Safely ensure migration columns exist if table was already created
+        cursor.execute("PRAGMA table_info(incidents);")
+        inc_cols = [r[1] for r in cursor.fetchall()]
+        if "reporter_id" not in inc_cols:
+            cursor.execute("ALTER TABLE incidents ADD COLUMN reporter_id INTEGER;")
+        if "description" not in inc_cols:
+            cursor.execute("ALTER TABLE incidents ADD COLUMN description TEXT;")
+        if "image_url" not in inc_cols:
+            cursor.execute("ALTER TABLE incidents ADD COLUMN image_url TEXT;")
+        if "is_sos" not in inc_cols:
+            cursor.execute("ALTER TABLE incidents ADD COLUMN is_sos INTEGER NOT NULL DEFAULT 0;")
+        if "source" not in inc_cols:
+            cursor.execute("ALTER TABLE incidents ADD COLUMN source TEXT NOT NULL DEFAULT 'OFFICIAL';")
 
         # 2. Resource Depots Table (Module 2)
         cursor.execute("""

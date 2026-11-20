@@ -23,7 +23,7 @@ def get_dashboard_summary(conn: sqlite3.Connection = Depends(get_db)):
         SUM(CASE WHEN severity_level = 'Low' THEN 1 ELSE 0 END) as low_count,
         SUM(casualties) as total_casualties,
         SUM(affected_population) as total_affected
-    FROM incidents WHERE status = 'Active';
+    FROM incidents WHERE status != 'Resolved';
     """)
     inc_row = cursor.fetchone()
     
@@ -89,8 +89,8 @@ def get_map_telemetry(conn: sqlite3.Connection = Depends(get_db)):
     """
     cursor = conn.cursor()
     
-    # 1. Active Incidents
-    cursor.execute("SELECT * FROM incidents WHERE status = 'Active';")
+    # 1. Active Incidents (including citizen verified reports and active emergencies)
+    cursor.execute("SELECT * FROM incidents WHERE status != 'Resolved';")
     incidents = [dict(r) for r in cursor.fetchall()]
     
     # 2. Resource Depots

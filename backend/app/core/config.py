@@ -6,9 +6,11 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 APP_DIR = BASE_DIR / "app"
 DATA_DIR = BASE_DIR / "data"
 ML_ARTIFACTS_DIR = APP_DIR / "ml" / "artifacts"
+UPLOADS_DIR = DATA_DIR / "uploads"
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 ML_ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
+UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
 # Database
 TESTING = os.getenv("TESTING", "0") == "1"

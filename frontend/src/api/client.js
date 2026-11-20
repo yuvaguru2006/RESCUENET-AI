@@ -7,12 +7,40 @@ const apiClient = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
-  timeout: 10000,
+  timeout: 15000,
+});
+
+// Attach Authorization Bearer token to all outgoing requests
+apiClient.interceptors.request.use((config) => {
+  const token = localStorage.getItem('rescuenet_token');
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
 });
 
 export const disasterApi = {
   // Health
   checkHealth: () => apiClient.get('/health'),
+
+  // Authentication & RBAC
+  login: (username, password) => apiClient.post('/v1/auth/login', { username, password }),
+  register: (userData) => apiClient.post('/v1/auth/register', userData),
+  getMe: () => apiClient.get('/v1/auth/me'),
+  logout: () => apiClient.post('/v1/auth/logout'),
+
+  // Citizen Workflow
+  reportCitizenIncident: (data) => apiClient.post('/v1/incidents/citizen-report', data),
+  sendSOS: (data) => apiClient.post('/v1/incidents/sos', data),
+  getMyReports: () => apiClient.get('/v1/incidents/my-reports'),
+
+  // Admin Management & Verification
+  getCitizenSubmissions: () => apiClient.get('/v1/incidents/citizen-submissions'),
+  updateIncidentStatus: (incidentId, status, commanderNotes) =>
+    apiClient.patch(`/v1/incidents/${incidentId}/status`, {
+      status,
+      commander_notes: commanderNotes,
+    }),
 
   // Module 1: Disaster Intelligence
   registerIncident: (data) => apiClient.post('/v1/incidents/register', data),
