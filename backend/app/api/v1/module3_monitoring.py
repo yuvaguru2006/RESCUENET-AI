@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException
 import sqlite3
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from app.core.database import get_db
+from app.core.security import get_optional_user
 from app.schemas.pydantic_schemas import DashboardSummary, EmergencyAlert
 
 router = APIRouter(prefix="/monitoring", tags=["Module 3: Disaster Monitoring & Visualization"])
@@ -145,10 +146,20 @@ def get_map_telemetry(conn: sqlite3.Connection = Depends(get_db)):
     }
 
 @router.get("/analytics-data")
-def get_analytics_data(conn: sqlite3.Connection = Depends(get_db)):
+def get_analytics_data(
+    conn: sqlite3.Connection = Depends(get_db),
+    current_user: Optional[Dict[str, Any]] = Depends(get_optional_user)
+):
     """
     Supplies aggregated telemetry datasets pre-structured for Plotly chart visualizers.
+    Role-based access: Citizens are strictly forbidden (HTTP 403) from accessing administrative analytics.
     """
+    if isinstance(current_user, dict) and current_user.get("role") != "ADMIN":
+        raise HTTPException(
+            status_code=403,
+            detail="Administrator privileges required to access executive situation analytics."
+        )
+
     cursor = conn.cursor()
     
     # 1. Severity Distribution

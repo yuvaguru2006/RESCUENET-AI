@@ -13,6 +13,7 @@ from app.schemas.pydantic_schemas import (
     SOSRequest,
     IncidentStatusUpdate
 )
+from app.core.security import require_admin
 from app.api.v1.auth import register_citizen, login
 from app.api.v1.module1_intelligence import (
     register_incident,
@@ -353,3 +354,36 @@ def test_citizen_forbidden_from_admin_dispatch_approval(setup_db):
             mock_citizen
         )
     assert exc.value.status_code == 403
+
+def test_citizen_forbidden_from_admin_analytics(setup_db):
+    """Verifies that citizen role cannot access administrative situation analytics."""
+    mock_citizen = {
+        "user_id": 2,
+        "username": "citizen",
+        "role": "CITIZEN"
+    }
+    with pytest.raises(HTTPException) as exc:
+        get_analytics_data(setup_db, mock_citizen)
+    assert exc.value.status_code == 403
+
+def test_citizen_forbidden_from_admin_actions(setup_db):
+    """Verifies that citizen role fails require_admin dependency check."""
+    mock_citizen = {
+        "user_id": 2,
+        "username": "citizen",
+        "role": "CITIZEN"
+    }
+    with pytest.raises(HTTPException) as exc:
+        require_admin(mock_citizen)
+    assert exc.value.status_code == 403
+
+def test_admin_allowed_to_access_analytics(setup_db):
+    """Verifies that admin role can successfully access situation analytics data."""
+    mock_admin = {
+        "user_id": 1,
+        "username": "admin",
+        "role": "ADMIN"
+    }
+    data = get_analytics_data(setup_db, mock_admin)
+    assert "severity_distribution" in data
+    assert "hazard_type_breakdown" in data

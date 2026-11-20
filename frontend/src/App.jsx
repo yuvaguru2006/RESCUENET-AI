@@ -61,10 +61,47 @@ export function App() {
         return u.role === 'ADMIN' ? 'admin' : 'citizen';
       }
     } catch {}
-    return 'admin';
+    return 'citizen';
   });
 
   const [authModalOpen, setAuthModalOpen] = useState(false);
+  const [unauthorizedRouteAttempt, setUnauthorizedRouteAttempt] = useState(null);
+
+  const isAdmin = currentUser?.role === 'ADMIN';
+  const effectiveView = isAdmin ? viewMode : 'citizen';
+
+  // Synchronize route with URL hash & strictly enforce RBAC protection on administrative routes
+  useEffect(() => {
+    const handleRouteFromHash = () => {
+      const hash = window.location.hash.replace(/^#\/?/, '').toLowerCase();
+      const adminTabs = ['overview', 'module1', 'module2', 'module3'];
+
+      if (adminTabs.includes(hash)) {
+        if (currentUser?.role === 'ADMIN') {
+          setViewMode('admin');
+          setActiveTab(hash);
+          setUnauthorizedRouteAttempt(null);
+        } else {
+          // Direct URL route violation: Citizen or unauthenticated visitor trying to access admin modules
+          window.location.hash = '#citizen';
+          setViewMode('citizen');
+          const actor = currentUser ? 'Citizen accounts' : 'unauthenticated visitors';
+          setUnauthorizedRouteAttempt(
+            `Access restricted: Administrative module '#${hash}' requires Emergency Commander authorization. ${actor} cannot access operational command modules.`
+          );
+          if (!currentUser) {
+            setAuthModalOpen(true);
+          }
+        }
+      } else if (hash === 'citizen') {
+        setViewMode('citizen');
+      }
+    };
+
+    handleRouteFromHash();
+    window.addEventListener('hashchange', handleRouteFromHash);
+    return () => window.removeEventListener('hashchange', handleRouteFromHash);
+  }, [currentUser]);
 
   // Core Data States
   const [summary, setSummary] = useState(null);
@@ -88,32 +125,51 @@ export function App() {
         setBackendHealthy(false);
       }
 
-      // 2. Fetch parallel endpoints
-      const [
-        summaryRes,
-        alertsRes,
-        incidentsRes,
-        depotsRes,
-        allocationsRes,
-        mapRes,
-        analyticsRes,
-      ] = await Promise.allSettled([
-        disasterApi.getDashboardSummary(),
-        disasterApi.getAlerts(),
-        disasterApi.getIncidents(),
-        disasterApi.getDepots(),
-        disasterApi.getAllocations(),
-        disasterApi.getMapTelemetry(),
-        disasterApi.getAnalyticsData(),
-      ]);
+      let userRole = null;
+      try {
+        const saved = localStorage.getItem('rescuenet_user');
+        if (saved) {
+          userRole = JSON.parse(saved)?.role;
+        }
+      } catch {}
 
-      if (summaryRes.status === 'fulfilled') setSummary(summaryRes.value.data);
-      if (alertsRes.status === 'fulfilled') setAlerts(alertsRes.value.data);
-      if (incidentsRes.status === 'fulfilled') setIncidents(incidentsRes.value.data);
-      if (depotsRes.status === 'fulfilled') setDepots(depotsRes.value.data);
-      if (allocationsRes.status === 'fulfilled') setAllocations(allocationsRes.value.data);
-      if (mapRes.status === 'fulfilled') setMapTelemetry(mapRes.value.data);
-      if (analyticsRes.status === 'fulfilled') setAnalyticsData(analyticsRes.value.data);
+      if (userRole === 'ADMIN') {
+        const [
+          summaryRes,
+          alertsRes,
+          incidentsRes,
+          depotsRes,
+          allocationsRes,
+          mapRes,
+          analyticsRes,
+        ] = await Promise.allSettled([
+          disasterApi.getDashboardSummary(),
+          disasterApi.getAlerts(),
+          disasterApi.getIncidents(),
+          disasterApi.getDepots(),
+          disasterApi.getAllocations(),
+          disasterApi.getMapTelemetry(),
+          disasterApi.getAnalyticsData(),
+        ]);
+
+        if (summaryRes.status === 'fulfilled') setSummary(summaryRes.value.data);
+        if (alertsRes.status === 'fulfilled') setAlerts(alertsRes.value.data);
+        if (incidentsRes.status === 'fulfilled') setIncidents(incidentsRes.value.data);
+        if (depotsRes.status === 'fulfilled') setDepots(depotsRes.value.data);
+        if (allocationsRes.status === 'fulfilled') setAllocations(allocationsRes.value.data);
+        if (mapRes.status === 'fulfilled') setMapTelemetry(mapRes.value.data);
+        if (analyticsRes.status === 'fulfilled') setAnalyticsData(analyticsRes.value.data);
+      } else {
+        const [summaryRes, alertsRes, incidentsRes] = await Promise.allSettled([
+          disasterApi.getDashboardSummary(),
+          disasterApi.getAlerts(),
+          disasterApi.getIncidents(),
+        ]);
+
+        if (summaryRes.status === 'fulfilled') setSummary(summaryRes.value.data);
+        if (alertsRes.status === 'fulfilled') setAlerts(alertsRes.value.data);
+        if (incidentsRes.status === 'fulfilled') setIncidents(incidentsRes.value.data);
+      }
     } catch (err) {
       console.error('Data sync error', err);
     } finally {
@@ -147,10 +203,13 @@ export function App() {
 
   const handleAuthSuccess = (user) => {
     setCurrentUser(user);
+    setUnauthorizedRouteAttempt(null);
     if (user.role === 'ADMIN') {
       setViewMode('admin');
+      window.location.hash = `#${activeTab || 'overview'}`;
     } else {
       setViewMode('citizen');
+      window.location.hash = '#citizen';
     }
     fetchAllData(false);
   };
@@ -164,8 +223,26 @@ export function App() {
     localStorage.removeItem('rescuenet_token');
     localStorage.removeItem('rescuenet_user');
     setCurrentUser(null);
-    setViewMode('admin');
+    setViewMode('citizen');
+    setUnauthorizedRouteAttempt(null);
+    window.location.hash = '#citizen';
     fetchAllData(false);
+  };
+
+  const handleTabChange = (tabId) => {
+    if (!isAdmin) {
+      setUnauthorizedRouteAttempt('Unauthorized navigation attempt. Citizen accounts cannot access administrative modules.');
+      return;
+    }
+    setActiveTab(tabId);
+    window.location.hash = `#${tabId}`;
+  };
+
+  const handleSwitchView = () => {
+    if (!isAdmin) return;
+    const nextMode = viewMode === 'admin' ? 'citizen' : 'admin';
+    setViewMode(nextMode);
+    window.location.hash = nextMode === 'admin' ? `#${activeTab}` : '#citizen';
   };
 
   return (
@@ -178,15 +255,35 @@ export function App() {
         currentUser={currentUser}
         onOpenAuth={() => setAuthModalOpen(true)}
         onLogout={handleLogout}
-        viewMode={viewMode}
-        onSwitchView={() => setViewMode((prev) => (prev === 'admin' ? 'citizen' : 'admin'))}
+        viewMode={effectiveView}
+        onSwitchView={handleSwitchView}
       />
 
-      {/* VIEW MODE 1: CITIZEN INTERFACE */}
-      {viewMode === 'citizen' ? (
+      {/* Strict Role-Based View Separation */}
+      {effectiveView === 'citizen' || !isAdmin ? (
+        /* VIEW MODE 1: CITIZEN SAFETY PORTAL (ONLY PERMITTED CITIZEN FEATURES) */
         <main className="flex-1 p-4 lg:p-6 overflow-y-auto space-y-6">
           {/* Top Ticker: Active Emergency Alerts */}
           <AlertBanner alerts={alerts} onAlertDismissed={fetchAllData} />
+
+          {/* Direct URL Access Violation Alert */}
+          {unauthorizedRouteAttempt && (
+            <div className="bg-red-950/80 border border-red-800 rounded-lg p-4 text-xs font-mono text-red-200 flex items-center justify-between shadow-lg">
+              <div className="flex items-center gap-3">
+                <ShieldAlert className="w-5 h-5 text-red-400 shrink-0" />
+                <div>
+                  <span className="font-bold text-red-300">ACCESS RESTRICTED: </span>
+                  {unauthorizedRouteAttempt}
+                </div>
+              </div>
+              <button
+                onClick={() => setUnauthorizedRouteAttempt(null)}
+                className="text-xs bg-red-900/60 hover:bg-red-800 px-2 py-1 rounded border border-red-700 transition"
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
 
           {/* Citizen Dashboard Component */}
           <Suspense fallback={<ComponentLoader label="Loading Citizen Disaster & SOS Portal..." />}>
@@ -198,12 +295,12 @@ export function App() {
           </Suspense>
         </main>
       ) : (
-        /* VIEW MODE 2: ADMINISTRATOR COMMAND-CENTER DASHBOARD */
+        /* VIEW MODE 2: ADMINISTRATOR COMMAND-CENTER DASHBOARD (ONLY PERMITTED FOR COMMANDER/ADMIN) */
         <div className="flex-1 flex flex-col lg:flex-row">
-          {/* Navigation Sidebar */}
+          {/* Navigation Sidebar: Displays all 3 modules strictly for ADMIN */}
           <Sidebar
             activeTab={activeTab}
-            setActiveTab={setActiveTab}
+            setActiveTab={handleTabChange}
             activeAlertsCount={alerts.length}
             activeIncidentsCount={incidents.length}
           />
