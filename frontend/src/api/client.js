@@ -28,7 +28,7 @@ export const disasterApi = {
     apiClient.post('/v1/optimization/approve-dispatch', {
       allocation_ids: allocationIds,
       approved: true,
-      commander_notes: notes || 'Approved by Incident Commander',
+      commander_notes: notes,
     }),
   getRecommendations: (incidentId) => apiClient.get(`/v1/optimization/recommendations/${incidentId}`),
 

@@ -96,17 +96,33 @@ export const IncidentRegistrationForm = ({ onIncidentRegistered }) => {
         `Incident Registered Successfully! AI classified as ${res.data.severity_level} (Risk: ${res.data.risk_score}/100)`
       );
 
+      // Keep AI preview aligned with the registered incident
+      setAiPreview({
+        severity_level: res.data.severity_level,
+        risk_score: res.data.risk_score,
+        confidence: 0.95,
+        class_probabilities: aiPreview?.class_probabilities || {
+          [res.data.severity_level]: 0.95,
+        },
+        feature_contributions: aiPreview?.feature_contributions || {
+          "Casualties Impact": 35.0,
+          "Infrastructure Damage": 30.0,
+          "Hazard Type Specifics": 20.0,
+          "Population Exposure": 15.0,
+        },
+        explanation: res.data.prediction_explanation,
+        is_simulated_model: false,
+      });
+
       if (onIncidentRegistered) {
         onIncidentRegistered(res.data);
       }
 
-      // Reset form slightly
+      // Preserve registered telemetry values so display and preview remain consistent
+      // Clear title so operator can register another event or modify this one
       setFormData((prev) => ({
         ...prev,
         title: '',
-        casualties: 0,
-        affected_population: 500,
-        damage_level: 1,
       }));
     } catch (err) {
       console.error('Incident registration failed', err);
@@ -243,31 +259,54 @@ export const IncidentRegistrationForm = ({ onIncidentRegistered }) => {
           {/* Casualties & Affected Population */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <div className="flex justify-between text-slate-300 font-semibold mb-1">
+              <div className="flex justify-between items-center text-slate-300 font-semibold mb-1">
                 <span>REPORTED CASUALTIES:</span>
-                <span className="text-red-400 font-bold">{formData.casualties}</span>
+                <input
+                  type="number"
+                  min="0"
+                  max="500"
+                  value={formData.casualties}
+                  onChange={(e) =>
+                    setFormData({ ...formData, casualties: Math.max(0, parseInt(e.target.value) || 0) })
+                  }
+                  className="w-16 bg-slate-950 border border-slate-700 rounded px-1.5 py-0.5 text-right font-bold text-red-400 focus:outline-none focus:border-red-500"
+                />
               </div>
               <input
                 type="range"
                 min="0"
                 max="100"
                 value={formData.casualties}
-                onChange={(e) => setFormData({ ...formData, casualties: parseInt(e.target.value) })}
+                onChange={(e) =>
+                  setFormData({ ...formData, casualties: parseInt(e.target.value) || 0 })
+                }
                 className="w-full accent-red-500 cursor-pointer"
               />
             </div>
             <div>
-              <div className="flex justify-between text-slate-300 font-semibold mb-1">
+              <div className="flex justify-between items-center text-slate-300 font-semibold mb-1">
                 <span>AFFECTED POPULATION:</span>
-                <span className="text-blue-400 font-bold">{formData.affected_population.toLocaleString()}</span>
+                <input
+                  type="number"
+                  min="0"
+                  max="100000"
+                  step="50"
+                  value={formData.affected_population}
+                  onChange={(e) =>
+                    setFormData({ ...formData, affected_population: Math.max(0, parseInt(e.target.value) || 0) })
+                  }
+                  className="w-24 bg-slate-950 border border-slate-700 rounded px-1.5 py-0.5 text-right font-bold text-blue-400 focus:outline-none focus:border-blue-500"
+                />
               </div>
               <input
                 type="range"
                 min="50"
                 max="30000"
-                step="250"
+                step="50"
                 value={formData.affected_population}
-                onChange={(e) => setFormData({ ...formData, affected_population: parseInt(e.target.value) })}
+                onChange={(e) =>
+                  setFormData({ ...formData, affected_population: parseInt(e.target.value) || 0 })
+                }
                 className="w-full accent-blue-500 cursor-pointer"
               />
             </div>
@@ -306,15 +345,39 @@ export const IncidentRegistrationForm = ({ onIncidentRegistered }) => {
             </p>
           </div>
 
-          {/* Submit Button */}
-          <button
-            type="submit"
-            disabled={submitting}
-            className="w-full mt-4 bg-blue-600 hover:bg-blue-500 active:scale-[0.99] text-white font-bold py-2.5 px-4 rounded-lg flex items-center justify-center gap-2 shadow-lg shadow-blue-900/40 transition disabled:opacity-50"
-          >
-            <Send className="w-4 h-4" />
-            <span>{submitting ? 'PROCESSING WITH ML & PERSISTING...' : 'REGISTER DISASTER INCIDENT'}</span>
-          </button>
+          {/* Submit & Reset Controls */}
+          <div className="flex gap-3 mt-4">
+            <button
+              type="submit"
+              disabled={submitting}
+              className="flex-1 bg-blue-600 hover:bg-blue-500 active:scale-[0.99] text-white font-bold py-2.5 px-4 rounded-lg flex items-center justify-center gap-2 shadow-lg shadow-blue-900/40 transition disabled:opacity-50"
+            >
+              <Send className="w-4 h-4" />
+              <span>{submitting ? 'PROCESSING WITH ML & PERSISTING...' : 'REGISTER DISASTER INCIDENT'}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setFormData({
+                  title: '',
+                  disaster_type: 'Flood',
+                  location_name: 'Velachery, Chennai',
+                  latitude: 12.9750,
+                  longitude: 80.2207,
+                  casualties: 5,
+                  affected_population: 2000,
+                  damage_level: 3,
+                  weather_condition: 'Severe Rain',
+                });
+                setSuccessMessage(null);
+                setErrorMessage(null);
+              }}
+              className="px-3 py-2.5 bg-slate-950 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-700 rounded-lg transition text-xs font-mono"
+              title="Reset intake telemetry"
+            >
+              Reset
+            </button>
+          </div>
         </form>
       </div>
 

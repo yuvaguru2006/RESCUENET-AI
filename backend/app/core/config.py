@@ -11,7 +11,9 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 ML_ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
 
 # Database
-DB_PATH = DATA_DIR / "rescuenet.db"
+TESTING = os.getenv("TESTING", "0") == "1"
+DB_NAME = "rescuenet_test.db" if TESTING else "rescuenet.db"
+DB_PATH = DATA_DIR / DB_NAME
 DATABASE_URL = f"sqlite:///{DB_PATH}"
 
 # Project Metadata

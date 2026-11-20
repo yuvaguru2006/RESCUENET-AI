@@ -152,7 +152,19 @@ def approve_dispatch(payload: ApprovalRequest, conn: sqlite3.Connection = Depend
     Formally approves proposed AI recommendations and dispatches emergency units.
     Decrements available inventories at the corresponding resource depots in the database.
     Prevents double dispatching or double inventory deductions.
+    Requires explicit non-empty commander notes and at least one selected allocation.
     """
+    if not payload.commander_notes or not payload.commander_notes.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="Commander authorization notes are mandatory for human-in-the-loop dispatch."
+        )
+    if not payload.allocation_ids:
+        raise HTTPException(
+            status_code=400,
+            detail="At least one allocation must be selected for dispatch."
+        )
+
     cursor = conn.cursor()
     approved_count = 0
     

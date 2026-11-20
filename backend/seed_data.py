@@ -1,4 +1,5 @@
 import sys
+import argparse
 from pathlib import Path
 
 # Add backend directory to path
@@ -8,19 +9,30 @@ sys.path.insert(0, str(backend_dir))
 from app.core.database import init_db, get_db_context
 from app.ml.predictor import predictor
 
-def seed_database():
+def seed_database(force_reset: bool = False):
     """Initializes tables and seeds initial Chennai disaster depots and simulated incidents."""
-    print("Initializing SQLite database tables...")
     init_db()
     
     with get_db_context() as conn:
         cursor = conn.cursor()
         
-        # Check if already seeded
-        cursor.execute("SELECT COUNT(*) FROM resource_depots;")
-        if cursor.fetchone()[0] > 0:
-            print("Database already contains resource depots. Skipping re-seed.")
-            return
+        if force_reset:
+            print("Force resetting database tables and state...")
+            cursor.execute("DELETE FROM emergency_alerts;")
+            cursor.execute("DELETE FROM allocations;")
+            cursor.execute("DELETE FROM incidents;")
+            cursor.execute("DELETE FROM resource_depots;")
+            try:
+                cursor.execute("DELETE FROM sqlite_sequence WHERE name IN ('emergency_alerts', 'allocations', 'incidents', 'resource_depots');")
+            except Exception:
+                pass
+            conn.commit()
+        else:
+            # Check if already seeded
+            cursor.execute("SELECT COUNT(*) FROM resource_depots;")
+            if cursor.fetchone()[0] > 0:
+                print("Database already contains resource depots. Skipping re-seed.")
+                return
 
         print("Seeding Chennai Emergency Resource Depots...")
         depots = [
@@ -140,4 +152,7 @@ def seed_database():
         print(f"Successfully seeded 5 resource depots and {len(initial_incidents)} simulated Chennai incidents.")
 
 if __name__ == "__main__":
-    seed_database()
+    parser = argparse.ArgumentParser(description="Seed database for RESCUENET AI")
+    parser.add_argument("--reset", action="store_true", help="Force reset and purge all tables before seeding")
+    args = parser.parse_args()
+    seed_database(force_reset=args.reset)

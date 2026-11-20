@@ -27,33 +27,89 @@ def register_incident(payload: IncidentCreate, conn: sqlite3.Connection = Depend
     explanation = ml_output["explanation"]
     
     cursor = conn.cursor()
-    cursor.execute("""
-    INSERT INTO incidents (
-        title, disaster_type, latitude, longitude, location_name,
-        casualties, affected_population, damage_level, weather_condition,
-        severity_level, risk_score, prediction_explanation, status
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Active');
-    """, (
-        payload.title, payload.disaster_type, payload.latitude, payload.longitude,
-        payload.location_name, payload.casualties, payload.affected_population,
-        payload.damage_level, payload.weather_condition, severity, risk_score, explanation
-    ))
-    conn.commit()
-    incident_id = cursor.lastrowid
-    
-    # 2. Trigger automated emergency alert if Critical or High
-    if severity in ["Critical", "High"]:
+    # Check if an active incident with the same title already exists (deduplication)
+    cursor.execute(
+        "SELECT id, severity_level FROM incidents WHERE LOWER(TRIM(title)) = LOWER(TRIM(?)) AND status = 'Active';",
+        (payload.title,)
+    )
+    existing = cursor.fetchone()
+
+    if existing:
+        incident_id = existing["id"]
+        # Update existing incident telemetry rather than creating duplicate records
         cursor.execute("""
-        INSERT INTO emergency_alerts (
-            incident_id, alert_level, headline, message, is_active
-        ) VALUES (?, ?, ?, ?, 1);
+        UPDATE incidents SET
+            disaster_type = ?, latitude = ?, longitude = ?, location_name = ?,
+            casualties = ?, affected_population = ?, damage_level = ?, weather_condition = ?,
+            severity_level = ?, risk_score = ?, prediction_explanation = ?
+        WHERE id = ?;
         """, (
-            incident_id,
-            severity,
-            f"URGENT: {severity.upper()} SEVERITY INCIDENT - {payload.title}",
-            f"{payload.location_name}: {severity} event detected by AI intelligence. Casualties: {payload.casualties}, Population: {payload.affected_population:,}. Risk Index: {risk_score}/100. Dispatch review required."
+            payload.disaster_type, payload.latitude, payload.longitude,
+            payload.location_name, payload.casualties, payload.affected_population,
+            payload.damage_level, payload.weather_condition, severity, risk_score, explanation,
+            incident_id
         ))
         conn.commit()
+
+        # Update or sync existing active alert
+        if severity in ["Critical", "High"]:
+            cursor.execute("SELECT id FROM emergency_alerts WHERE incident_id = ? AND is_active = 1;", (incident_id,))
+            alert_row = cursor.fetchone()
+            if alert_row:
+                cursor.execute("""
+                UPDATE emergency_alerts SET
+                    alert_level = ?, headline = ?, message = ?
+                WHERE id = ?;
+                """, (
+                    severity,
+                    f"URGENT: {severity.upper()} SEVERITY INCIDENT - {payload.title}",
+                    f"{payload.location_name}: {severity} event detected by AI intelligence. Casualties: {payload.casualties}, Population: {payload.affected_population:,}. Risk Index: {risk_score}/100. Dispatch review required.",
+                    alert_row["id"]
+                ))
+            else:
+                cursor.execute("""
+                INSERT INTO emergency_alerts (
+                    incident_id, alert_level, headline, message, is_active
+                ) VALUES (?, ?, ?, ?, 1);
+                """, (
+                    incident_id,
+                    severity,
+                    f"URGENT: {severity.upper()} SEVERITY INCIDENT - {payload.title}",
+                    f"{payload.location_name}: {severity} event detected by AI intelligence. Casualties: {payload.casualties}, Population: {payload.affected_population:,}. Risk Index: {risk_score}/100. Dispatch review required."
+                ))
+            conn.commit()
+        else:
+            # If severity was downgraded below High, deactivate existing active alert for this incident
+            cursor.execute("UPDATE emergency_alerts SET is_active = 0 WHERE incident_id = ?;", (incident_id,))
+            conn.commit()
+    else:
+        cursor.execute("""
+        INSERT INTO incidents (
+            title, disaster_type, latitude, longitude, location_name,
+            casualties, affected_population, damage_level, weather_condition,
+            severity_level, risk_score, prediction_explanation, status
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Active');
+        """, (
+            payload.title, payload.disaster_type, payload.latitude, payload.longitude,
+            payload.location_name, payload.casualties, payload.affected_population,
+            payload.damage_level, payload.weather_condition, severity, risk_score, explanation
+        ))
+        conn.commit()
+        incident_id = cursor.lastrowid
+        
+        # 2. Trigger automated emergency alert if Critical or High
+        if severity in ["Critical", "High"]:
+            cursor.execute("""
+            INSERT INTO emergency_alerts (
+                incident_id, alert_level, headline, message, is_active
+            ) VALUES (?, ?, ?, ?, 1);
+            """, (
+                incident_id,
+                severity,
+                f"URGENT: {severity.upper()} SEVERITY INCIDENT - {payload.title}",
+                f"{payload.location_name}: {severity} event detected by AI intelligence. Casualties: {payload.casualties}, Population: {payload.affected_population:,}. Risk Index: {risk_score}/100. Dispatch review required."
+            ))
+            conn.commit()
 
     # 3. Fetch newly inserted record
     cursor.execute("SELECT * FROM incidents WHERE id = ?;", (incident_id,))

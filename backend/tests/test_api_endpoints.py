@@ -1,4 +1,8 @@
+import os
+os.environ["TESTING"] = "1"
+
 import pytest
+from fastapi import HTTPException
 from app.core.database import get_connection, init_db
 from app.schemas.pydantic_schemas import IncidentCreate, ApprovalRequest
 from app.api.v1.module1_intelligence import register_incident, list_incidents
@@ -9,7 +13,7 @@ from seed_data import seed_database
 @pytest.fixture(scope="module")
 def setup_db():
     init_db()
-    seed_database()
+    seed_database(force_reset=True)
     conn = get_connection()
     yield conn
     conn.close()
@@ -126,3 +130,82 @@ def test_monitoring_telemetry_and_analytics(setup_db):
     analytics = get_analytics_data(setup_db)
     assert "severity_distribution" in analytics
     assert "hazard_type_breakdown" in analytics
+
+def test_duplicate_incident_registration_updates_existing_record(setup_db):
+    """Verifies that re-registering an incident with identical title updates telemetry instead of duplicating."""
+    payload1 = IncidentCreate(
+        title="Koyambedu Wholesale Market Flood",
+        disaster_type="Flood",
+        latitude=13.0694,
+        longitude=80.1948,
+        location_name="Koyambedu, Chennai",
+        casualties=4,
+        affected_population=1800,
+        damage_level=2,
+        weather_condition="Moderate Rain"
+    )
+    res1 = register_incident(payload1, setup_db)
+    id1 = res1["id"]
+
+    # Re-register with same title but updated casualties & damage
+    payload2 = IncidentCreate(
+        title="Koyambedu Wholesale Market Flood",
+        disaster_type="Flood",
+        latitude=13.0694,
+        longitude=80.1948,
+        location_name="Koyambedu, Chennai",
+        casualties=18,
+        affected_population=4500,
+        damage_level=4,
+        weather_condition="Severe Rain"
+    )
+    res2 = register_incident(payload2, setup_db)
+    id2 = res2["id"]
+
+    # Must be the same ID, updated values, no duplicate record
+    assert id1 == id2
+    assert res2["casualties"] == 18
+    assert res2["affected_population"] == 4500
+    assert res2["damage_level"] == 4
+
+    cursor = setup_db.cursor()
+    cursor.execute("SELECT COUNT(*) FROM incidents WHERE LOWER(title) = LOWER(?);", ("Koyambedu Wholesale Market Flood",))
+    count = cursor.fetchone()[0]
+    assert count == 1
+
+def test_dispatch_approval_requires_commander_notes(setup_db):
+    """Verifies that dispatching without explicit commander notes or empty allocations is rejected."""
+    with pytest.raises(HTTPException) as excinfo:
+        approve_dispatch(
+            ApprovalRequest(allocation_ids=[1], approved=True, commander_notes="   "),
+            setup_db
+        )
+    assert excinfo.value.status_code == 400
+    assert "commander authorization notes" in excinfo.value.detail.lower()
+
+    with pytest.raises(HTTPException) as excinfo2:
+        approve_dispatch(
+            ApprovalRequest(allocation_ids=[], approved=True, commander_notes="Authorized"),
+            setup_db
+        )
+    assert excinfo2.value.status_code == 400
+    assert "at least one allocation" in excinfo2.value.detail.lower()
+
+def test_resource_inventory_and_deployment_totals_consistency(setup_db):
+    """Verifies that deployed + available inventory equals total depot capacity across all resource types."""
+    summary = get_dashboard_summary(setup_db)
+    cursor = setup_db.cursor()
+    cursor.execute("""
+    SELECT 
+        SUM(ambulances) as total_amb,
+        SUM(rescue_teams) as total_teams,
+        SUM(boats) as total_boats,
+        SUM(supplies) as total_sup
+    FROM resource_depots;
+    """)
+    totals = cursor.fetchone()
+    
+    assert summary["total_ambulances_deployed"] + summary["total_ambulances_available"] == totals["total_amb"]
+    assert summary["total_rescue_teams_deployed"] + summary["total_rescue_teams_available"] == totals["total_teams"]
+    assert summary["total_boats_deployed"] + summary["total_boats_available"] == totals["total_boats"]
+    assert summary["total_supplies_deployed"] + summary["total_supplies_available"] == totals["total_sup"]

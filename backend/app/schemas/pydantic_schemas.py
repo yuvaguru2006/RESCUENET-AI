@@ -101,7 +101,7 @@ class RecommendationItem(BaseModel):
 class ApprovalRequest(BaseModel):
     allocation_ids: List[int]
     approved: bool = True
-    commander_notes: Optional[str] = "Approved by Emergency Command"
+    commander_notes: str = Field(..., min_length=3, description="Mandatory human incident commander authorization notes")
 
 # --- Monitoring & Alerts Schemas (Module 3) ---
 

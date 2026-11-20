@@ -7,7 +7,7 @@ export const OptimizationConsole = ({ depots, allocations, onOptimizationRun, on
   const [running, setRunning] = useState(false);
   const [solverResult, setSolverResult] = useState(null);
   const [selectedAllocations, setSelectedAllocations] = useState([]);
-  const [commanderNotes, setCommanderNotes] = useState('Approved by State Incident Commander for immediate deployment.');
+  const [commanderNotes, setCommanderNotes] = useState('');
   const [approving, setApproving] = useState(false);
   const [selectedIncidentRecommendation, setSelectedIncidentRecommendation] = useState(null);
 
@@ -19,9 +19,8 @@ export const OptimizationConsole = ({ depots, allocations, onOptimizationRun, on
       if (onOptimizationRun) {
         onOptimizationRun();
       }
-      // Pre-select newly proposed allocations for convenience
-      const proposedIds = (res.data.allocations || []).map((a) => a.id);
-      setSelectedAllocations(proposedIds);
+      // Require explicit human operator selection — do NOT auto-select
+      setSelectedAllocations([]);
     } catch (err) {
       console.error('Optimization run failed', err);
     } finally {
@@ -41,11 +40,12 @@ export const OptimizationConsole = ({ depots, allocations, onOptimizationRun, on
   };
 
   const handleApproveDispatch = async () => {
-    if (selectedAllocations.length === 0) return;
+    if (selectedAllocations.length === 0 || !commanderNotes.trim()) return;
     try {
       setApproving(true);
-      await disasterApi.approveDispatch(selectedAllocations, commanderNotes);
+      await disasterApi.approveDispatch(selectedAllocations, commanderNotes.trim());
       setSelectedAllocations([]);
+      setCommanderNotes('');
       if (onDispatchApproved) {
         onDispatchApproved();
       }
@@ -184,24 +184,34 @@ export const OptimizationConsole = ({ depots, allocations, onOptimizationRun, on
         {/* Commander Sign-Off Notes */}
         <div className="grid grid-cols-1 md:grid-cols-12 gap-3 mb-4 font-mono text-xs">
           <div className="md:col-span-8">
-            <label className="block text-slate-400 mb-1">COMMANDER DISPATCH LOG / NOTES:</label>
+            <label className="block text-slate-400 mb-1 flex items-center justify-between">
+              <span>COMMANDER DISPATCH LOG / NOTES (MANDATORY HUMAN SIGN-OFF):</span>
+              {!commanderNotes.trim() && (
+                <span className="text-amber-400 text-[10px] font-bold">AWAITING OPERATOR INPUT</span>
+              )}
+            </label>
             <input
               type="text"
+              placeholder="Enter official authorization notes (e.g., Authorized by State Incident Commander for immediate deployment)..."
               value={commanderNotes}
               onChange={(e) => setCommanderNotes(e.target.value)}
-              className="w-full bg-slate-950 border border-slate-700 rounded-md p-2 text-slate-200 focus:outline-none focus:border-emerald-500"
+              className="w-full bg-slate-950 border border-slate-700 rounded-md p-2 text-slate-200 focus:outline-none focus:border-emerald-500 placeholder-slate-600"
             />
           </div>
           <div className="md:col-span-4 flex items-end">
             <button
               onClick={handleApproveDispatch}
-              disabled={approving || selectedAllocations.length === 0}
-              className="w-full bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-bold py-2.5 px-4 rounded-lg flex items-center justify-center gap-2 shadow-lg shadow-emerald-950/60 transition disabled:opacity-40"
+              disabled={approving || selectedAllocations.length === 0 || !commanderNotes.trim()}
+              className="w-full bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-bold py-2.5 px-4 rounded-lg flex items-center justify-center gap-2 shadow-lg shadow-emerald-950/60 transition disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <CheckCircle2 className="w-4 h-4" />
               <span>
                 {approving
                   ? 'AUTHORIZING FIELD ORDERS...'
+                  : selectedAllocations.length === 0
+                  ? 'SELECT ALLOCATIONS TO DISPATCH'
+                  : !commanderNotes.trim()
+                  ? 'ENTER COMMANDER NOTES'
                   : `AUTHORIZE & DISPATCH (${selectedAllocations.length})`}
               </span>
             </button>
