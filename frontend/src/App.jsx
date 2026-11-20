@@ -1,13 +1,9 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import { disasterApi } from './api/client';
 import { Navbar } from './components/common/Navbar';
 import { Sidebar } from './components/common/Sidebar';
 import { SeverityBadge } from './components/common/SeverityBadge';
-import { DisasterMap } from './components/module3/DisasterMap';
 import { AlertBanner } from './components/module3/AlertBanner';
-import { IncidentRegistrationForm } from './components/module1/IncidentRegistrationForm';
-import { OptimizationConsole } from './components/module2/OptimizationConsole';
-import { AnalyticsVisualizer } from './components/module3/AnalyticsVisualizer';
 import {
   AlertTriangle,
   Users,
@@ -17,6 +13,27 @@ import {
   Flame,
   LifeBuoy,
 } from 'lucide-react';
+
+// Lazy-loaded components for optimal bundle splitting
+const DisasterMap = lazy(() => import('./components/module3/DisasterMap'));
+const IncidentRegistrationForm = lazy(() => import('./components/module1/IncidentRegistrationForm'));
+const OptimizationConsole = lazy(() => import('./components/module2/OptimizationConsole'));
+const AnalyticsVisualizer = lazy(() => import('./components/module3/AnalyticsVisualizer'));
+
+// Command-center skeleton loaders for lazy-loaded modules
+const ComponentLoader = ({ label = 'Loading operational module...' }) => (
+  <div className="w-full p-12 bg-slate-900 border border-slate-800 rounded-xl flex flex-col items-center justify-center font-mono text-xs text-slate-400 gap-3 shadow-xl">
+    <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+    <span>{label}</span>
+  </div>
+);
+
+const MapSkeleton = () => (
+  <div className="w-full h-[520px] rounded-xl border border-slate-800 bg-slate-950 flex flex-col items-center justify-center font-mono text-xs text-slate-400 gap-3 shadow-2xl">
+    <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+    <span>Initializing Chennai GIS Telemetry & Spatial Engine...</span>
+  </div>
+);
 
 export function App() {
   const [activeTab, setActiveTab] = useState('overview');
@@ -206,7 +223,9 @@ export function App() {
               </div>
 
               {/* Main Interactive Leaflet Chennai Situation Map */}
-              <DisasterMap mapTelemetry={mapTelemetry} />
+              <Suspense fallback={<MapSkeleton />}>
+                <DisasterMap mapTelemetry={mapTelemetry} />
+              </Suspense>
 
               {/* Active Incident Summary Table */}
               <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-xl font-mono text-xs">
@@ -276,7 +295,9 @@ export function App() {
               </div>
 
               {/* Ingest Form with Real-Time ML Preview */}
-              <IncidentRegistrationForm onIncidentRegistered={fetchAllData} />
+              <Suspense fallback={<ComponentLoader label="Loading Module 1: AI Disaster Intelligence & Scikit-learn Pipeline..." />}>
+                <IncidentRegistrationForm onIncidentRegistered={fetchAllData} />
+              </Suspense>
 
               {/* Registered Incidents Directory */}
               <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-xl font-mono text-xs">
@@ -340,12 +361,14 @@ export function App() {
               </div>
 
               {/* Optimization Console */}
-              <OptimizationConsole
-                depots={depots}
-                allocations={allocations}
-                onOptimizationRun={fetchAllData}
-                onDispatchApproved={fetchAllData}
-              />
+              <Suspense fallback={<ComponentLoader label="Loading Module 2: Decision Support & Google OR-Tools MIP Solver..." />}>
+                <OptimizationConsole
+                  depots={depots}
+                  allocations={allocations}
+                  onOptimizationRun={fetchAllData}
+                  onDispatchApproved={fetchAllData}
+                />
+              </Suspense>
             </div>
           )}
 
@@ -367,7 +390,9 @@ export function App() {
               </div>
 
               {/* Visual Analytics */}
-              <AnalyticsVisualizer analyticsData={analyticsData} summary={summary} />
+              <Suspense fallback={<ComponentLoader label="Loading Module 3: Plotly Analytics & Situation Debrief Engine..." />}>
+                <AnalyticsVisualizer analyticsData={analyticsData} summary={summary} />
+              </Suspense>
             </div>
           )}
         </main>

@@ -1,6 +1,9 @@
 import React from 'react';
-import Plot from 'react-plotly.js';
+import Plotly from 'plotly.js-dist-min';
+import createPlotlyComponent from 'react-plotly.js/factory';
 import { BarChart3, FileText, Download } from 'lucide-react';
+
+const Plot = createPlotlyComponent(Plotly);
 
 export const AnalyticsVisualizer = ({ analyticsData, summary }) => {
   if (!analyticsData) {
