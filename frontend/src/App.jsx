@@ -542,6 +542,7 @@ export function App() {
                     allocations={allocations}
                     onOptimizationRun={fetchAllData}
                     onDispatchApproved={fetchAllData}
+                    onDepotsChanged={fetchAllData}
                   />
                 </Suspense>
               </div>

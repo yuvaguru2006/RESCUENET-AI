@@ -50,12 +50,16 @@ export const disasterApi = {
 
   // Module 2: Decision Support & Optimization
   getDepots: () => apiClient.get('/v1/optimization/depots'),
+  createDepot: (data) => apiClient.post('/v1/optimization/depots', data),
+  updateDepot: (id, data) => apiClient.put(`/v1/optimization/depots/${id}`, data),
+  deleteDepot: (id) => apiClient.delete(`/v1/optimization/depots/${id}`),
+  getIncidentDemands: () => apiClient.get('/v1/optimization/demands'),
   solveOptimization: () => apiClient.post('/v1/optimization/solve'),
   getAllocations: () => apiClient.get('/v1/optimization/allocations'),
-  approveDispatch: (allocationIds, notes) =>
+  approveDispatch: (allocationIds, notes, approved = true) =>
     apiClient.post('/v1/optimization/approve-dispatch', {
       allocation_ids: allocationIds,
-      approved: true,
+      approved,
       commander_notes: notes,
     }),
   getRecommendations: (incidentId) => apiClient.get(`/v1/optimization/recommendations/${incidentId}`),

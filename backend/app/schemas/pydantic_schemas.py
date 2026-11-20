@@ -121,6 +121,57 @@ class ResourceDepot(BaseModel):
     available_rescue_teams: int
     available_boats: int
     available_supplies: int
+    allocated_ambulances: Optional[int] = 0
+    allocated_rescue_teams: Optional[int] = 0
+    allocated_boats: Optional[int] = 0
+    allocated_supplies: Optional[int] = 0
+
+class DepotCreate(BaseModel):
+    name: str = Field(..., min_length=3, max_length=100, examples=["Guindy Emergency Depot"])
+    latitude: float = Field(..., examples=[13.0067])
+    longitude: float = Field(..., examples=[80.2026])
+    ambulances: int = Field(0, ge=0)
+    rescue_teams: int = Field(0, ge=0)
+    boats: int = Field(0, ge=0)
+    supplies: int = Field(0, ge=0, description="Food kits, water supplies and emergency packs")
+
+class DepotUpdate(BaseModel):
+    name: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    ambulances: Optional[int] = Field(None, ge=0)
+    rescue_teams: Optional[int] = Field(None, ge=0)
+    boats: Optional[int] = Field(None, ge=0)
+    supplies: Optional[int] = Field(None, ge=0)
+    available_ambulances: Optional[int] = Field(None, ge=0)
+    available_rescue_teams: Optional[int] = Field(None, ge=0)
+    available_boats: Optional[int] = Field(None, ge=0)
+    available_supplies: Optional[int] = Field(None, ge=0)
+
+class IncidentDemandItem(BaseModel):
+    incident_id: int
+    title: str
+    disaster_type: str
+    severity_level: str
+    risk_score: float
+    location_name: str
+    latitude: float
+    longitude: float
+    casualties: int
+    affected_population: int
+    damage_level: int
+    gross_demand: Dict[str, int]
+    already_dispatched: Dict[str, int]
+    net_demand: Dict[str, int]
+
+class IncidentDemandsResponse(BaseModel):
+    total_active_incidents: int
+    incidents: List[IncidentDemandItem]
+    aggregated_gross_demand: Dict[str, int]
+    aggregated_dispatched: Dict[str, int]
+    aggregated_net_demand: Dict[str, int]
+    total_available_stock: Dict[str, int]
+    stock_status: Dict[str, str]
 
 class AllocationItem(BaseModel):
     id: int
